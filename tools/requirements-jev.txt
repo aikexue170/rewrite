@@ -1,0 +1,9 @@
+# jevnovel 打分服务（tools/serve_jev.py）的额外依赖。
+# torch 因为要按显卡/平台选安装源，不在这里锁版本，先按下面方式装 torch，再装本文件：
+#   NVIDIA (Linux/Windows): pip install torch --index-url https://download.pytorch.org/whl/cu124
+#   AMD Linux (ROCm):       pip install torch --index-url https://download.pytorch.org/whl/rocm6.2
+#   CPU / 其他:             pip install torch
+# 然后：
+#   pip install -r tools/requirements-jev.txt
+torch>=2.4
+transformers>=4.57

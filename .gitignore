@@ -1,0 +1,7 @@
+.venv/
+config.json
+__pycache__/
+*.pyc
+tests/_router.log
+debug/
+tests/_router.log

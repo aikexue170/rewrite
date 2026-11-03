@@ -1,0 +1,50 @@
+{
+  "host": "0.0.0.0",
+  "port": 8011,
+  "cloud": {
+    "base_url": "https://api.deepseek.com/v1",
+    "api_key": "sk-你的key",
+    "model": "deepseek-v4-pro",
+    "forward_params": null,
+    "timeout_s": 600,
+    "min_max_tokens": 2048
+  },
+  "rewrite": {
+    "base_url": "http://127.0.0.1:8080/v1",
+    "api_key": "",
+    "model": "rewrite3-shorter-4B",
+    "instruction_file": "INSTRUCTION.txt",
+    "temperature": 0.9,
+    "top_p": 0.95,
+    "repetition_penalty": 1.05,
+    "max_tokens": 6144,
+    "timeout_s": 900
+  },
+  "jev": {
+    "base_url": "http://127.0.0.1:8885",
+    "timeout_s": 120,
+    "chunk_chars": 300,
+    "batch_units": 120
+  },
+  "pipeline": {
+    "max_source_chars": 3000,
+    "fallback_to_original": true,
+    "rewrite_cot_header": "〔rewrite3思维链〕",
+    "body_after_cot": true
+  },
+  "sse": {
+    "heartbeat_interval_s": 5,
+    "chunk_size": 8,
+    "chunk_interval_s": 0.005
+  },
+  "protection": {
+    "enabled": true,
+    "min_prose_ratio": 0.15,
+    "max_segments": 4,
+    "min_rewrite_chars": 60,
+    "note_in_reasoning": true
+  },
+  "debug": {
+    "dump": false
+  }
+}
