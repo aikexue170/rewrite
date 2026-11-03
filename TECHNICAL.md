@@ -57,7 +57,8 @@ SillyTavern ──▶ 薯饼路由器 ──▶ 云端模型（生成 + 原生�
 | 改文模型 | rewrite3-shorter-4B（bf16/fp8/gguf 都行） | HF 下载，vLLM 或 llama.cpp 起服务 |
 | jevnovel | jevnovel-3 0.8B（打分用） | HF 下载，用 `tools/serve_jev.py` 起服务 |
 
-显存参考：改文模型 fp8 约 6G / Q8 GGUF 约 5G，jev 0.8B 约 2G，24G 卡两张一起跑没问题。
+显存参考：改文模型是 4B，Q4_K_M 约 2.6G / Q8 约 4.6G / FP8 约 5.5G，jev 0.8B 带开销约 2G。
+8G 卡就能舒服玩（Q4_K_M 或 Q8 配小上下文 + jev 同卡），6G 卡属于极限（Q4_K_M + `-c 4096`，jev 同卡），24G 随便挑。
 
 ## 快速开始
 

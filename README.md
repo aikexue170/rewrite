@@ -78,7 +78,8 @@ SillyTavern ──▶ 薯饼路由器 ──▶ 云端模型（DeepSeek / Kimi /
 
 合集：[rewrite3 on Hugging Face](https://huggingface.co/collections/aikexue170/rewrite3-6ae8d2d4a8c5f6550fa5706f)
 
-> 显存参考：改文模型 Q8 约 5G / FP8 约 6G，jev 0.8B 约 2G，24G 的卡两个一起跑很宽裕。
+> **显存要求比想象中低**：改文模型是 4B，Q4_K_M 约 2.6G、Q8 约 4.6G、FP8 约 5.5G；jev 0.8B 加开销约 2G。
+> **8G 卡就能爽玩，6G 卡极限也能跑**，24G 随便挑。
 
 ---
 
@@ -156,7 +157,12 @@ cp config.example.json config.json
 ## 常见问题
 
 **要多少显存？**
-改文模型 Q8 约 5G 或 FP8 约 6G，jev 0.8B 约 2G。24G 卡可以两个一起跑；只有 8G 卡就 Q4_K_M + jev 换 CPU 跑（会慢）。
+改文模型是 4B，量化后非常小：Q4_K_M 约 2.6G、Q8 约 4.6G、FP8 约 5.5G；jev 0.8B 带开销约 2G。
+
+- **8G 卡：能爽玩** —— Q4_K_M（或 Q8 配小一点的上下文）+ jev 同卡
+- **6G 卡：极限能跑** —— Q4_K_M + 小上下文（`-c 4096`），jev 同卡，把参数压到最省就是（能玩，但别指望开大上下文）
+- **12G～16G：很舒服** —— Q8 / FP8 + jev 同卡
+- **24G 及以上：随便挑** —— 更大上下文、更高吞吐，甚至能上 BF16
 
 **为什么正文等很久才出来？**
 这是「整篇模式」：云端写完后，改文模型要先写 3～4 千 token 的分析，再输出正文。等待期间思维链一直在动。想更快可以调 `pipeline.max_source_chars` 或关掉 `body_after_cot`。
