@@ -1,0 +1,26 @@
+{
+ "id": "example-preset",
+ "name": "示例预设（复制本文件后改成你自己的）",
+ "match": {
+  "fingerprints": [
+   "把这一条换成你预设里一条 20 字以上、其他预设里不会出现的提示词长句"
+  ],
+  "markers": ["<example_body>", "<example_think>"],
+  "display_markers": [],
+  "min_fingerprints": 1,
+  "min_markers": 1,
+  "min_text_score": 8
+ },
+ "structure": {
+  "keep_tags": ["example_think", "StatusBlock"],
+  "wrapper_tags": [],
+  "body_tags": ["example_body"],
+  "root_tags": [],
+  "plain_body": {
+   "after": [],
+   "before": []
+  },
+  "keep_prefixes": [],
+  "body_is_whole": false
+ }
+}

@@ -12,12 +12,12 @@
   "rewrite": {
     "base_url": "http://127.0.0.1:8080/v1",
     "api_key": "",
-    "model": "rewrite3-shorter-4B",
+    "model": "rewrite3-27B",
     "instruction_file": "INSTRUCTION.txt",
     "temperature": 0.9,
     "top_p": 0.95,
     "repetition_penalty": 1.05,
-    "max_tokens": 6144,
+    "max_tokens": 8192,
     "timeout_s": 900
   },
   "jev": {
@@ -43,6 +43,12 @@
     "max_segments": 4,
     "min_rewrite_chars": 60,
     "note_in_reasoning": true
+  },
+  "presets": {
+    "enabled": true,
+    "dir": "preset_specs",
+    "min_fingerprint_chars": 20,
+    "note_in_reasoning": false
   },
   "debug": {
     "dump": false

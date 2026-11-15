@@ -25,12 +25,12 @@ description: 薯饼路由器（rewrite router）— 把 SillyTavern / OpenAI 兼
 python3 --version            # 需要 >= 3.10
 git --version
 nvidia-smi || rocm-smi       # 有 GPU 用 GPU；纯 CPU 也能跑但很慢
-df -h                        # 至少留 15G 给模型
+df -h                        # 至少留 20G 给模型
 curl -sI https://huggingface.co | head -1   # 能访问 HF
 ```
 
-显存需求：改文模型 Q4_K_M≈2.6G / Q8≈4.6G / FP8≈5.5G，jev 0.8B 带开销≈2G。
-6G 属极限（Q4 + `-c 4096`，jev 同卡）；8G 可爽玩（Q4 或 Q8+小上下文）；16G 随便跑（BF16 都行）。
+显存需求：改文模型写 27B，llama.cpp GGUF 里 IQ3_XS≈12.3G / IQ4_XS≈15.5G；16G 卡建议 IQ4_XS
+（`-c 16384`），Q4_K_M（17G）16G 塞不下；vLLM FP8≈35.9G 需 48G 级。jev 0.8B 带开销≈2G（可同卡或 CPU）。
 端口检查：8011 / 8080 / 8885 不能被占。
 
 ## 步骤 1：装路由
@@ -45,15 +45,18 @@ cp config.example.json config.json
 
 Windows 用 `setup_windows.bat`（自动建 venv、装依赖、生成 config.json）。
 
+`preset_specs/` 随仓库自带 `beileng-3-0.json`（作者自用）和 `example-spec.json`（模板），预设解析默认开启。
+第三方预设的 spec 不随仓库分发（指纹是别人预设提示词的片段）；用户要用就用自己的预设本地生成：`python tools/parse_preset.py 你的预设.json --out preset_specs/xxx.json`。
+
 ## 步骤 2：下载模型
 
 ```bash
 pip install -U huggingface_hub
 
-# 改文模型（GGUF 省事）：q4km 最省显存，q8 平衡
-hf download aikexue170/rewrite3-4b-shorter-q8   --local-dir models/rewrite3-q8
-# 或者 NVIDIA vLLM 路线：
-# hf download aikexue170/rewrite3-4b-shorter-fp8 --local-dir models/rewrite3-fp8
+# 改文模型（GGUF 省事）：IQ4_XS 是 16G 卡首选，IQ3_XS 更省
+hf download aikexue170/rewrite3-27b-iq4xs --local-dir models/rewrite3-iq4xs
+# 或者 NVIDIA 48G 级走 vLLM：
+# hf download aikexue170/rewrite3-27b-fp8 --local-dir models/rewrite3-fp8
 
 # 打分模型（目录里必须有 infer.py，serve_jev.py 靠它加载）
 hf download aikexue170/jev-novel-3-0.8b-fp8 --local-dir models/jev-0.8b
@@ -63,8 +66,8 @@ hf download aikexue170/jev-novel-3-0.8b-fp8 --local-dir models/jev-0.8b
 
 | 用途 | 推荐下载 | 显存 |
 |---|---|---|
-| 改文（llama.cpp） | `rewrite3-4b-shorter-q8` 或 `-q4km` | 5G / 2.6G |
-| 改文（vLLM） | `rewrite3-4b-shorter-fp8` / `-nvfp4` | 6G / 4G |
+| 改文（llama.cpp） | `rewrite3-27b-iq4xs`（首选）/ `-iq3xs` | 15.5G / 12.3G |
+| 改文（vLLM） | `rewrite3-27b-fp8` | 35.9G（48G 级） |
 | 打分 | `jev-novel-3-0.8b-fp8` | 2G |
 
 jev 服务需要单独的 Python 环境（torch + transformers）：
@@ -87,9 +90,9 @@ pip install -r tools/requirements-jev.txt
   },
   "rewrite": {
     "base_url": "http://127.0.0.1:8080/v1",      // llama.cpp/vLLM 的 OpenAI 兼容地址
-    "model": "rewrite3-shorter-4B",              // 必须等于 --alias / --served-model-name
-    "instruction_file": "INSTRUCTION.txt",
-    "max_tokens": 6144
+    "model": "rewrite3-27B",                     // 必须等于 --alias / --served-model-name
+    "instruction_file": "INSTRUCTION.txt",       // 仓库自带的是「保持长度」档
+    "max_tokens": 8192
   },
   "jev":  { "base_url": "http://127.0.0.1:8885" },
   "pipeline": { "body_after_cot": true, "rewrite_cot_header": "〔rewrite3思维链〕" },
@@ -105,8 +108,8 @@ pip install -r tools/requirements-jev.txt
 
 ```bash
 # 1) 改文模型（二选一）
-GGUF=./models/rewrite3-q8/*.gguf PORT=8080 tools/start_rewrite_llama.sh
-# 或
+GGUF=./models/rewrite3-iq4xs/*.gguf PORT=8080 tools/start_rewrite_llama.sh
+# 或（48G 级）
 MODEL_DIR=./models/rewrite3-fp8 PORT=8080 tools/start_rewrite_vllm.sh
 
 # 2) jevnovel 打分
@@ -155,7 +158,8 @@ curl -N -X POST http://127.0.0.1:8011/api/rewrite \
 | 改文 404 / model not found | config 里 rewrite.model 和服务名不一致 | 改成启动参数里的 `--alias` / `--served-model-name` |
 | jev 分数全是【NA】 | jev 服务没起或地址不对 | 起 `tools/serve_jev.py`，`curl :8885/health` |
 | 正文迟迟不出来 | 整篇模式 + 改文 CoT 很长 | 正常现象；可调 `pipeline.body_after_cot=false` 或减小 `max_source_chars` |
-| 显存 OOM | 精度太高 | 换 Q4_K_M / nvfp4；jev 可 CPU |
+| 换了 ST 预设后规划/状态栏被改写 | 没命中预设，走了通用保护层 | 看 `config.presets.enabled`；`python tools/parse_preset.py --check preset_specs/`；新预设按 `preset_specs/README.md` 补 spec |
+| 显存 OOM | 27B 太大/上下文太长 | 换 IQ3_XS、降 `-c`、jev 放 CPU |
 | 端口被占 | 8011/8080/8885 冲突 | 改 config/bat 里的端口 |
 | Windows 控制台乱码 | 编码 | 用仓库里的 `.bat`（已 chcp 65001 + PYTHONUTF8=1） |
 | 前端页面打不开 | 路由没起或端口不对 | `curl :8011/health` |
@@ -164,6 +168,7 @@ curl -N -X POST http://127.0.0.1:8011/api/rewrite \
 
 - 不要修改 `app/sentences.py`：它必须和 jev 训练时的分句规则一致，改了分数口径就错。
 - 不要默认关掉 `protection`：前端卡的状态栏/HTML/变量块靠它保护。
+- 不要删 `preset_specs/`：预设解析靠它识别 ST 预设；新增/修改 spec 后用 `tools/parse_preset.py --check` 校验。
 - 不要把 `config.json`、`debug/`、`.venv/` 提交到 git。
 - 没有用户明确要求，不要把这个服务暴露到公网（无鉴权，会盗用用户的云端 key 额度）。
 - 先验证 `/health` 三项全绿，再做端到端测试。

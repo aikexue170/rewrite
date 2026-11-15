@@ -28,12 +28,12 @@ DEFAULTS = {
     "rewrite": {
         "base_url": "http://127.0.0.1:8080/v1",
         "api_key": "",
-        "model": "rewrite3-shorter-4B",
+        "model": "rewrite3-27B",
         "instruction_file": "INSTRUCTION.txt",
         "temperature": 0.9,
         "top_p": 0.95,
         "repetition_penalty": 1.05,
-        "max_tokens": 6144,
+        "max_tokens": 8192,
         "timeout_s": 900,
     },
     "jev": {
@@ -54,6 +54,12 @@ DEFAULTS = {
         "max_segments": 4,            # 正文被结构块切超过这么多段就整条不改
         "min_rewrite_chars": 60,      # 短于这个的正文段直接原样保留
         "note_in_reasoning": True,    # 跳过时在思维链里留一句说明
+    },
+    "presets": {
+        "enabled": True,              # 预设解析：识别 ST 预设，只改预设规则里的正文
+        "dir": "preset_specs",        # spec 目录（相对项目根；改了自动重载）
+        "min_fingerprint_chars": 20,  # 提示词指纹最短长度
+        "note_in_reasoning": False,   # 命中预设时是否在思维链里说明
     },
     "debug": {
         "dump": False,             # true = 把最近一次改文的原文/切分写到 debug/last_plan.txt
@@ -101,3 +107,16 @@ def cloud_key_ok() -> bool:
 def resolve_path(p: str) -> Path:
     path = Path(p)
     return path if path.is_absolute() else (BASE_DIR / path)
+
+
+ROOT = BASE_DIR
+
+
+def get(key: str, default=None):
+    """点路径取配置（如 ``get("presets.dir")``），供移植自站点的模块使用。"""
+    value = CFG
+    for part in str(key).split("."):
+        if not isinstance(value, dict) or part not in value:
+            return default
+        value = value[part]
+    return value

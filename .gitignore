@@ -5,3 +5,8 @@ __pycache__/
 tests/_router.log
 debug/
 tests/_router.log
+
+# 预设 spec：只内置作者自用 + 示例；用户自己生成的第三方 spec 不进库
+preset_specs/*.json
+!preset_specs/beileng-3-0.json
+!preset_specs/example-spec.json

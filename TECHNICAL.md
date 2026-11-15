@@ -10,7 +10,7 @@
 SillyTavern ──▶ 薯饼路由器 ──▶ 云端模型（生成 + 原生思维链）
                     │
                     ├──▶ jevnovel 0.8B（逐句打分）
-                    └──▶ rewrite3 4B（整篇改文 + 改文思维链）
+                    └──▶ rewrite3 27B（整篇改文 + 改文思维链）
 ```
 
 用户看到的顺序：
@@ -54,11 +54,11 @@ SillyTavern ──▶ 薯饼路由器 ──▶ 云端模型（生成 + 原生�
 | 东西 | 是什么 | 怎么来 |
 |---|---|---|
 | 云端模型 | 任意 OpenAI 兼容 API（DeepSeek / Kimi / GLM / OpenRouter / 硅基流动…） | 填 `config.json` 里的 `cloud` |
-| 改文模型 | rewrite3-shorter-4B（bf16/fp8/gguf 都行） | HF 下载，vLLM 或 llama.cpp 起服务 |
+| 改文模型 | rewrite3-27B（bf16/fp8/gguf 都行） | HF 下载，vLLM 或 llama.cpp 起服务 |
 | jevnovel | jevnovel-3 0.8B（打分用） | HF 下载，用 `tools/serve_jev.py` 起服务 |
 
-显存参考：改文模型是 4B，Q4_K_M 约 2.6G / Q8 约 4.6G / FP8 约 5.5G，jev 0.8B 带开销约 2G。
-6G 卡属于极限（Q4_K_M + `-c 4096`，jev 同卡），8G 卡就能舒服玩（Q4_K_M 或 Q8 配小上下文 + jev 同卡），16G 卡随便跑（BF16 都能上）。
+显存参考：改文模型是 27B，llama.cpp GGUF 里 IQ3_XS 约 12.3G、IQ4_XS 约 15.5G（16G 卡首选，`-c 16384` 左右），
+Q4_K_M 17G 在 16G 卡上塞不下；vLLM FP8 约 35.9G，需要 48G 级显存。jev 0.8B 带开销约 2G（可同卡或 CPU）。
 
 ## 快速开始
 
@@ -77,11 +77,11 @@ Windows 用户不用敲这些，直接双击 `setup_windows.bat`，见下面「W
 ### 2. 起改文模型（二选一）
 
 ```bash
-# NVIDIA 卡，vLLM（>=0.28，支持 MTP 投机解码）
-MODEL_DIR=/path/to/rewrite3-shorter-4B-FP8 PORT=8080 tools/start_rewrite_vllm.sh
+# NVIDIA 卡，vLLM（>=0.28，支持 MTP 投机解码；FP8 需 48G 级显存）
+MODEL_DIR=/path/to/rewrite3-27b-fp8 PORT=8080 tools/start_rewrite_vllm.sh
 
-# 或者 llama.cpp（AMD/CPU 也能跑，Q8 GGUF）
-GGUF=/path/to/rewrite3-shorter-4B-Q8_0.gguf PORT=8080 tools/start_rewrite_llama.sh
+# 或者 llama.cpp（AMD/CPU 也能跑；GGUF 里已内嵌 MTP）
+GGUF=/path/to/rewrite3-27b-IQ4_XS.gguf PORT=8080 tools/start_rewrite_llama.sh
 ```
 
 ### 3. 起 jevnovel 打分服务
@@ -154,7 +154,7 @@ cp config.example.json config.json
 | jevnovel 打分 | `tools\start_jev.bat` |
 | 路由 + 测试前端 | `start_router.bat` |
 
-- **改文模型**：去 llama.cpp Releases 下 Windows 的 **CUDA / Vulkan** 版，把 `llama-server.exe` 加到 PATH；模型默认找 `%USERPROFILE%\models\rewrite3-shorter-4B-Q8_0.gguf`，也可以先 `set GGUF=D:\models\xxx.gguf` 再双击。
+- **改文模型**：去 llama.cpp Releases 下 Windows 的 **CUDA / Vulkan** 版，把 `llama-server.exe` 加到 PATH；模型默认找 `%USERPROFILE%\models\rewrite3-27b-IQ4_XS.gguf`，也可以先 `set GGUF=D:\models\xxx.gguf` 再双击。
 - **jevnovel**：先装它的依赖（和路由分开，需要 torch + transformers）：
 
   ```bat
@@ -191,9 +191,9 @@ cp config.example.json config.json
 | `cloud.forward_params` | `null` | `null` = 除 messages/model/stream 外全部原样透传；填数组则只透传列出的字段（云端对多余参数报 400 时用） |
 | `cloud.min_max_tokens` | `2048` | 酒馆的 `max_tokens` 小于它时抬到它，防止云端思维链把正文预算吃光 |
 | `rewrite.base_url` | `http://127.0.0.1:8080/v1` | 改文模型地址 |
-| `rewrite.model` | `rewrite3-shorter-4B` | 改文模型名（vLLM `--served-model-name` / llama.cpp `--alias`） |
+| `rewrite.model` | `rewrite3-27B` | 改文模型名（vLLM `--served-model-name` / llama.cpp `--alias`） |
 | `rewrite.instruction_file` | `INSTRUCTION.txt` | 改文任务指令，随仓库附带 |
-| `rewrite.temperature` / `top_p` / `repetition_penalty` / `max_tokens` | `0.9/0.95/1.05/6144` | 改文采样参数，别乱调，`max_tokens` 小了会只有思维链没有正文 |
+| `rewrite.temperature` / `top_p` / `repetition_penalty` / `max_tokens` | `0.9/0.95/1.05/8192` | 改文采样参数，别乱调，`max_tokens` 小了会只有思维链没有正文 |
 | `jev.base_url` | `http://127.0.0.1:8885` | jevnovel 服务地址 |
 | `jev.chunk_chars` | `300` | 单句超过多少字就切块打分取最烂 |
 | `pipeline.max_source_chars` | `3000` | 云端正文超过多少字就分段改（分段结果按顺序拼回去） |
@@ -205,6 +205,10 @@ cp config.example.json config.json
 | `protection.max_segments` | `4` | 正文被结构块切成超过这么多段就整条不改 |
 | `protection.min_rewrite_chars` | `60` | 短于这个长度的小段原样保留（不值得改） |
 | `protection.note_in_reasoning` | `true` | 跳过改文时在思维链里留一句说明 |
+| `presets.enabled` | `true` | 预设解析：认出 ST 预设后只抽该预设规则里的正文送改文 |
+| `presets.dir` | `preset_specs` | spec 目录（相对项目根；目录内容变了自动重载，不用重启） |
+| `presets.min_fingerprint_chars` | `20` | 提示词指纹最短长度（短指纹会被忽略） |
+| `presets.note_in_reasoning` | `false` | 命中预设时是否在思维链里说一句「已识别预设：xxx」 |
 | `sse.heartbeat_interval_s` | `5` | 多久没数据就发一次心跳（防止酒馆以为连接死了） |
 
 ---
@@ -222,7 +226,10 @@ cp config.example.json config.json
 | `GET /api/info` | 测试前端：服务状态（改文/jev/云端是否在线） |
 | `GET /health` | 健康检查 |
 
-## 实测数据
+## 实测数据（旧版 4B 存档，仅作链路耗时参考）
+
+> 下表是旧版 rewrite3-shorter-4B 的实测；27B 的改文阶段约为它的 5～8 倍（取决于量化与显卡），
+> 云端生成与 jev 打分耗时基本不变。要快就换更好的卡/量化，或减小 `pipeline.max_source_chars`。
 
 本机环境：RX 9070 XT（llama.cpp Q8 GGUF + MTP 投机解码）+ 局域网 4090（jev 0.8B）+ DeepSeek v4 pro。
 
@@ -248,7 +255,7 @@ cp config.example.json config.json
 其余参数（temperature/top_p/stop/各种惩罚……）原样带给云端。如果哪个云端对多余字段报 400，把 `cloud.forward_params` 填成白名单数组即可。
 
 **回传侧才拦截。**
-云端的 `reasoning_content` 实时显示，正文全部扣下不显示；等云端写完，才打分、拼标记、送改文模型，最后按「改文思维链 → 改写正文」吐给酒馆。
+云端的 `reasoning_content` 实时显示，正文全部扣下不显示；等云端写完，先做预设匹配/正文抽取，再打分、拼标记、送改文模型，最后按「改文思维链 → 改写正文」吐给酒馆。
 
 **为什么整篇模式、正文不边写边改？**
 边写边改（分段流水线）当然更快，但正文要等段落写完才能打分、改写，而且改文思维链会被切碎。整篇模式下，云端思维链一结束就能接改文思维链，两段思考都在正文前面，酒馆的思考框显示最干净，改文质量也最稳。代价是正文首字要等 30～60 秒——但这段时间里屏幕上一直有思维链在动，不会干等。
@@ -258,6 +265,45 @@ cp config.example.json config.json
 
 **0.8B 打分够吗？**
 够。它是 jevnovel 3 27B 的蒸馏学生，训练数据里的分数就是 27B 教师打的，同一套口径。27B 光权重就 30G，为了省显存用 0.8B 划算。
+
+## 预设解析（preset_specs/）
+
+不同 SillyTavern 预设的模型回复不是同一种结构：有的用 XML 标签把规划/正文/状态栏分开，
+有的正文不带标签、只能靠固定开场句/结束锚点定位。通用保护层（`app/protection.py`）
+是按「标签名像不像正文」猜的，遇到这类预设会把规划当正文改，或者整条判成前端结构跳过。
+
+`app/presets.py` + `preset_specs/*.json` 把「这个预设的正文在哪」变成数据：
+
+1. **匹配**（两条通道，任一命中即可）
+   - `messages` 指纹：ST 托管请求里带预设提示词，用跨预设唯一的 20+ 字长句比对；
+   - `text` 标记：网页粘贴/历史里剥掉提示词后，用正文里的结构标记（如 `<example_body>`）比对。
+2. **抽取**：按 spec 的 `keep_tags` / `body_tags` / `wrapper_tags` / `root_tags` /
+   `plain_body.after|before` / `keep_prefixes` / `body_is_whole` 切分；
+   未闭合的 keep 标签保护到结尾（**绝不能把规划当正文**）。
+3. **二次保护**：抽出来的正文区再交给 `app/protection.py` 切一遍，HTML 面板、变量块、
+   占位符仍然原样保留。
+4. **回退**：没命中预设 / spec 切不出正文 → 走原来的通用保护层，行为和旧版一致；
+   预设解析本身出任何异常都只记日志，不影响请求。
+
+加新预设：
+
+```bash
+# 从 ST 预设 JSON 生成 spec 草稿（自动推标签分类、脚本清单、唯一长句指纹）
+python tools/parse_preset.py 预设定/某预设.json --out preset_specs/某预设.json
+# 批量
+python tools/parse_preset.py --presets-dir 预设定/ --out-dir preset_specs/
+# 校验（会提示指纹过短、字段缺失等）
+python tools/parse_preset.py --check preset_specs/
+```
+
+自动生成推不准的是**结构锚点**（`plain_body`、`keep_prefixes`、`body_is_whole`）：
+要看模型实际输出长什么样、预设自带的正则会不会把标签物理删掉，再按
+`preset_specs/README.md` 补齐；spec 里会标 TODO。改完不用重启，目录 mtime 变了自动重载。
+
+仓库只内置两份 spec：`beileng-3-0.json`（作者自用零标签预设）和 `example-spec.json`
+（教学模板）。第三方预设（梦鲸思客/梁元/图灵/夏瑾/泉此方等）的 spec **不随仓库分发**：
+指纹是别人预设提示词的原文片段，公开等于转载；请用 `tools/parse_preset.py` 从你本地
+的预设生成一份，生成的文件在 `.gitignore` 里不会误提交。
 
 ## 前端卡兼容：怎么判断哪段是正文
 
@@ -300,6 +346,9 @@ cp config.example.json config.json
 .venv/bin/python tests/selftest.py
 # Windows: .venv\Scripts\python.exe tests\selftest.py
 
+# 预设解析单测：spec 加载 / 指纹与标记匹配 / 梦鲸式 XML 抽取 / 流水线只改正文
+.venv/bin/python tests/test_presets.py
+
 # 结构保护器单测：不认识的包裹词、UI 块、未闭合标签等 20 个对抗样例
 .venv/bin/python tests/test_protection.py
 
@@ -322,7 +371,8 @@ cp config.example.json config.json
 │   ├── cloud.py             # 云端模型客户端（原生思维链转发、正文拦截）
 │   ├── jev.py               # jevnovel 打分客户端
 │   ├── rewrite.py           # 改文模型客户端（</think> 切分）
-│   ├── pipeline.py          # 云端 → 打分 → 改文 的总调度
+│   ├── presets.py           # 预设解析：识别 ST 预设，按 spec 抽正文
+│   ├── pipeline.py          # 云端 → 预设/保护切分 → 打分 → 改文 的总调度
 │   ├── protection.py        # 前端卡结构保护：切出纯正文，结构块原样保留
 │   ├── splitter.py          # 分句 + 【分数】标记拼接
 │   ├── sentences.py         # 分句规则（从 revnovel_next/jevd 原样拷来）
@@ -333,9 +383,12 @@ cp config.example.json config.json
 │   ├── start_jev.bat
 │   ├── start_jev.sh
 │   ├── start_rewrite_vllm.sh
-│   └── start_rewrite_llama.sh
+│   ├── start_rewrite_llama.sh
+│   └── parse_preset.py      # 从 ST 预设 JSON 生成 preset_specs 草稿
+├── preset_specs/            # 预设解析 spec 仓库（一份预设一个 JSON + README）
 └── tests/
     ├── test_protection.py   # 结构保护器单测（对抗样例）
+    ├── test_presets.py      # 预设解析单测（spec 加载/匹配/抽取/流水线集成）
     ├── selftest.py          # 无 GPU 自测
     └── live_client.py       # 真实链路冒烟
 ```
@@ -346,10 +399,11 @@ cp config.example.json config.json
 你的酒馆版本要支持 `reasoning_content`（新版 SillyTavern 默认支持）。另外确认云端模型本身会返回思维链；不返回的话只有改文思维链，中间那行 `〔rewrite3思维链〕` 仍然会在。
 
 **正文特别短、描写全被删了？**
-这是 rewrite3-shorter 的行为：它的任务定义就是压短（0.4～1.0 倍，中位 0.7），遇到 AI 味重的环境描写会直接砍。想要保留描写等 keep 版模型。
+rewrite3-27B 是「保持长度」档（0.9～1.1 倍），正常不会大砍篇幅。如果明显变短，先确认
+`INSTRUCTION.txt` 没被换成旧版、`rewrite.model` 和启动时的 alias/代理名一致，再检查是不是改文被截断（`max_tokens` 不够）。
 
 **改文很慢 / 只有思维链没有正文？**
-改文模型 `max_tokens` 要给够（默认 6144），它的思维链经常写三四千 token。
+改文模型 `max_tokens` 要给够（默认 8192），它的思维链经常写三四千 token。
 
 **云端正文很短、像是被截断了？**
 `max_tokens` 是总预算，云端模型的思维链也算在里面。酒馆一般只给几百，所以路由会把 `cloud.min_max_tokens`（默认 2048）当保底；如果你用的云端思考特别长，把它调到 4096 或更大。
@@ -364,5 +418,5 @@ cp config.example.json config.json
 
 - SSE / 转发骨架改自 [薯饼迭代器](../薯饼迭代器)（SillyTavern 分段创作转发）
 - 分句规则来自 revnovel_next 的 `jevd/sentences.py`（SENT_RULES=3）
-- 改文模型：[aikexue170/rewrite3-4b-shorter-*](https://huggingface.co/aikexue170)（BF16/FP8/NVFP4/Q8/Q4_K_M）
+- 改文模型：[aikexue170/rewrite3-27b-*](https://huggingface.co/aikexue170)（BF16/FP8/NVFP4/IQ4_XS/Q4_K_M/Q3_K_M/IQ3_XS）
 - jevnovel：[aikexue170/jev-novel-3-0.8b-fp8](https://huggingface.co/aikexue170/jev-novel-3-0.8b-fp8)

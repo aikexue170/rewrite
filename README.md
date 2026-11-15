@@ -20,8 +20,9 @@ SillyTavern ──▶ 薯饼路由器 ──▶ 云端模型（DeepSeek / Kimi /
                     │              │ 原生思维链 → 实时显示
                     │              │ 正文 → 扣下，不显示
                     │
+                    ├──▶ ST 预设解析    认出当前预设，只抽「可改写正文」
                     ├──▶ jevnovel 0.8B  逐句打分，拼成「原句【0.23】」
-                    └──▶ rewrite3 4B    整篇改文 + 改文思维链
+                    └──▶ rewrite3 27B   整篇改文 + 改文思维链
 
 最终回到酒馆：云端原生思维链 → 〔rewrite3思维链〕 → 改文思维链 → 改写后的正文
 ```
@@ -49,6 +50,7 @@ SillyTavern ──▶ 薯饼路由器 ──▶ 云端模型（DeepSeek / Kimi /
 ## 为什么用它
 
 - **双思维链同屏**：云端原生 CoT 和改文 CoT 都塞进酒馆的思考区，能看清「为什么这么改」。
+- **预设自动适配**：不同 ST 预设的回复结构各不相同（有的用 XML 标签把规划/正文/状态栏分开，有的正文不带标签、只能靠锚点定位）。命中预设后按预设规则只抽正文送改文，规划、场景栏、状态栏原样保留；认不出预设时回退通用结构保护。仓库内置作者自用预设的 spec + 一份教学模板，第三方预设用自己的本地预设生成。
 - **只改纯正文**：状态栏、HTML 面板、MVU 变量更新块、`<SUOT>` 选项、占位符这些结构内容**原样保留**，不会被改坏；认不出结构时整条跳过改文。
 - **剧情选项不会被改写**：结尾的 A/B/C 选项、编号台词会原样留着（这条是专门处理过的）。
 - **云端模型列表透传**：酒馆里的模型下拉直接来自云端 `/v1/models`，选 `deepseek-flash` 还是 `deepseek-v4-pro` 都行，不用在本地配模型名。
@@ -58,17 +60,50 @@ SillyTavern ──▶ 薯饼路由器 ──▶ 云端模型（DeepSeek / Kimi /
 
 ---
 
+## 预设解析（preset_specs/）
+
+不同 SillyTavern 预设的模型回复结构不一样：有的用 XML 标签把规划、正文、状态栏分开，
+有的正文干脆不带标签、只能靠固定开场句/结束锚点定位。通用结构保护只能按标签名猜，
+容易把「规划」「场景栏」当正文改掉。
+
+本仓库的 `preset_specs/` 把「这个预设的正文在哪」变成数据。目录里只带两份：
+`beileng-3-0.json`（北棱自用预设，零标签）和 `example-spec.json`（教学模板）。
+**第三方预设的 spec 不随仓库分发**——spec 里的指纹是预设提示词原文片段，公开等于
+转载别人的预设；请用你自己本地的预设生成一份（只自己用）：
+
+- **匹配**：入站 messages 里的预设提示词长句指纹（ST 托管路径最准），或正文里的结构标记；
+- **抽取**：按 spec 的 `keep_tags` / `body_tags` / `plain_body` 锚点切分，结构块原样保留，
+  正文区内部再交给通用保护层二次切分；
+- **回退**：没命中预设就走原来的通用保护逻辑，行为和以前完全一样。
+
+加新预设 = 往 `preset_specs/` 放一份 spec，不用改代码、不用重启（目录变了自动重载）：
+
+```bash
+# 用你自己的 ST 预设生成草稿（生成的文件在 .gitignore 里，不会被误提交）
+python tools/parse_preset.py 你的预设定/某预设.json --out preset_specs/某预设.json
+# 人工补结构规则后校验
+python tools/parse_preset.py --check preset_specs/
+```
+
+spec 的字段说明和「自动生成推不准、需要人工补的地方」见
+[`preset_specs/README.md`](preset_specs/README.md)。
+
+---
+
 ## 需要准备的模型（Hugging Face）
 
-改文模型（任选一个精度，越小越省显存）：
+改文模型是 **rewrite3-27B**（中文小说改写特化，自带 MTP 投机解码），任选一个格式：
 
 | 版本 | 链接 | 说明 |
 |---|---|---|
-| Q4_K_M | [rewrite3-4b-shorter-q4km](https://huggingface.co/aikexue170/rewrite3-4b-shorter-q4km) | 2.6G，llama.cpp，最省显存 |
-| Q8_0 | [rewrite3-4b-shorter-q8](https://huggingface.co/aikexue170/rewrite3-4b-shorter-q8) | 4.6G，llama.cpp，画质/体积平衡 |
-| FP8 | [rewrite3-4b-shorter-fp8](https://huggingface.co/aikexue170/rewrite3-4b-shorter-fp8) | 5.5G，vLLM（NVIDIA） |
-| NVFP4 | [rewrite3-4b-shorter-nvfp4](https://huggingface.co/aikexue170/rewrite3-4b-shorter-nvfp4) | 4.0G，vLLM（NVIDIA Blackwell） |
-| BF16 | [rewrite3-4b-shorter-bf16](https://huggingface.co/aikexue170/rewrite3-4b-shorter-bf16) | 8.7G，原始权重（含 MTP 头） |
+| IQ3_XS | [rewrite3-27b-iq3xs](https://huggingface.co/aikexue170/rewrite3-27b-iq3xs) | 12.3G，llama.cpp，极限小显存 |
+| Q3_K_M | [rewrite3-27b-q3km](https://huggingface.co/aikexue170/rewrite3-27b-q3km) | 13.7G，llama.cpp，16G 有余量 |
+| IQ4_XS | [rewrite3-27b-iq4xs](https://huggingface.co/aikexue170/rewrite3-27b-iq4xs) | 15.5G，llama.cpp，16G 首选（质量/体积平衡） |
+| Q4_K_M | [rewrite3-27b-q4km](https://huggingface.co/aikexue170/rewrite3-27b-q4km) | 17.0G，llama.cpp，16G 塞不下（建议 IQ4_XS） |
+| FP8 | [rewrite3-27b-fp8](https://huggingface.co/aikexue170/rewrite3-27b-fp8) | 35.9G，vLLM，主力部署（48G 级） |
+| BF16 | [rewrite3-27b-bf16](https://huggingface.co/aikexue170/rewrite3-27b-bf16) | 54.7G，原始权重，质量基准 |
+
+> HF 上还有 NVFP4 版本，但这个量化效果不佳，不建议使用；显存紧张优先 IQ4_XS。
 
 打分模型：
 
@@ -76,10 +111,11 @@ SillyTavern ──▶ 薯饼路由器 ──▶ 云端模型（DeepSeek / Kimi /
 |---|---|---|
 | jevnovel 3 0.8B FP8 | [jev-novel-3-0.8b-fp8](https://huggingface.co/aikexue170/jev-novel-3-0.8b-fp8) | 逐句判「烂完了」概率，2G 显存就够 |
 
-合集：[rewrite3 on Hugging Face](https://huggingface.co/collections/aikexue170/rewrite3-6ae8d2d4a8c5f6550fa5706f)
+合集：[rewrite3-27B on Hugging Face](https://huggingface.co/collections/aikexue170/rewrite3-27b-6af8f9ac120d5e7caed9a94c)
 
-> **显存要求比想象中低**：改文模型是 4B，Q4_K_M 约 2.6G、Q8 约 4.6G、FP8 约 5.5G；jev 0.8B 加开销约 2G。
-> **8G 卡就能爽玩，6G 卡极限也能跑，16G 就能随便跑**（再高只会更宽裕）。
+> **显存要求**：27B 的 llama.cpp GGUF 里，IQ3_XS 约 12.3G、IQ4_XS 约 15.5G，
+> **16G 卡建议 IQ4_XS**（上下文 `-c 16384` 左右；再高就上 24G+）；Q4_K_M 17G 在 16G 卡上塞不下。
+> vLLM FP8 需要 48G 级显存。jev 0.8B 另需约 2G，可以和改写同卡或放 CPU。
 
 ---
 
@@ -101,11 +137,11 @@ python3 -m venv .venv
 **改文模型**（llama.cpp 或 vLLM 二选一）：
 
 ```bash
-# llama.cpp（AMD/CPU/Windows 都能用）
-GGUF=/path/to/rewrite3-shorter-4B-Q8_0.gguf PORT=8080 tools/start_rewrite_llama.sh
+# llama.cpp（AMD/CPU/Windows 都能用；GGUF 里已内嵌 MTP）
+GGUF=/path/to/rewrite3-27b-IQ4_XS.gguf PORT=8080 tools/start_rewrite_llama.sh
 
-# 或 vLLM（NVIDIA，>=0.28，支持 MTP 投机解码）
-MODEL_DIR=/path/to/rewrite3-shorter-4B-FP8 PORT=8080 tools/start_rewrite_vllm.sh
+# 或 vLLM（NVIDIA，>=0.28，支持 MTP 投机解码；FP8 需 48G 级显存）
+MODEL_DIR=/path/to/rewrite3-27b-fp8 PORT=8080 tools/start_rewrite_vllm.sh
 ```
 
 **jevnovel 打分**（需要单独的 torch 环境）：
@@ -157,12 +193,12 @@ cp config.example.json config.json
 ## 常见问题
 
 **要多少显存？**
-改文模型是 4B，量化后非常小：Q4_K_M 约 2.6G、Q8 约 4.6G、FP8 约 5.5G；jev 0.8B 带开销约 2G。
+改文模型是 27B；jev 0.8B 另需约 2G（可同卡或 CPU）。
 
-- **6G 卡：极限能跑** —— Q4_K_M + 小上下文（`-c 4096`），jev 同卡，参数压到最省就行（能玩，别指望开大上下文）
-- **8G 卡：能爽玩** —— Q4_K_M（或 Q8 配小一点的上下文）+ jev 同卡
-- **12G 卡：很舒服** —— Q8 / FP8 + jev 同卡，上下文也能开大
-- **16G 及以上：随便跑** —— Q8 / FP8 / BF16 随便挑，吞吐和上下文都很宽裕
+- **12G 卡：极限能跑** —— IQ3_XS（12.3G）+ 小上下文（`-c 8192`），jev 放 CPU
+- **16G 卡：能舒服玩** —— IQ4_XS（15.5G，`-c 16384`）+ jev 同卡；预算紧就 IQ3_XS
+- **24G 卡：很宽裕** —— IQ4_XS 开大上下文 / Q4_K_M；jev 同卡
+- **48G 级：vLLM** —— FP8（35.9G）主力部署，吞吐最好；BF16 需要 80G 级
 
 **为什么正文等很久才出来？**
 这是「整篇模式」：云端写完后，改文模型要先写 3～4 千 token 的分析，再输出正文。等待期间思维链一直在动。想更快可以调 `pipeline.max_source_chars` 或关掉 `body_after_cot`。
@@ -170,8 +206,8 @@ cp config.example.json config.json
 **改文会不会把状态栏/选项改坏？**
 不会。结构化内容会被识别为「保留段」逐字节保留，只有纯正文送改文；认不出结构时整条跳过并提示。
 
-**改文太狠、描写被砍了？**
-rewrite3 是 shorter 档（任务定义就是压短，0.4～1.0 倍），遇到 AI 味重的描写会砍得比较狠。想要保留长度等 keep 版模型。
+**改文字数变化大吗？**
+rewrite3-27B 是「保持长度」档（0.9～1.1 倍），不会大砍篇幅；如果发现明显变短，先确认 `INSTRUCTION.txt` 没被换掉、`rewrite.model` 和启动时的 alias/代理名一致。
 
 更多见 [TECHNICAL.md](TECHNICAL.md#常见问题)。
 

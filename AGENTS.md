@@ -12,5 +12,6 @@
 
 1. `config.json` 含用户云端 key，已在 `.gitignore`，**绝不提交**。
 2. 不要修改 `app/sentences.py`（分句口径必须与 jev 训练一致）。
-3. 默认不要关闭 `protection`（前端卡结构保护）。
-4. 未经用户要求，不要把服务暴露到公网（无鉴权）。
+3. 默认不要关闭 `protection`（前端卡结构保护）与 `presets`（预设解析，spec 在 `preset_specs/`）。
+4. 新增/修改 `preset_specs/*.json` 后跑 `python tools/parse_preset.py --check preset_specs/`。
+5. 未经用户要求，不要把服务暴露到公网（无鉴权）。

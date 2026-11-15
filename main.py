@@ -48,7 +48,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("router")
 
-app = FastAPI(title="薯饼路由器", version="0.2.0")
+app = FastAPI(title="薯饼路由器", version="0.3.0")
 
 WEB_DIR = BASE_DIR / "web"
 _INDEX_CACHE: str | None = None

@@ -134,7 +134,7 @@ class JevMock(MockHandler):
 
 class RewriteMock(MockHandler):
     def do_GET(self):  # noqa: N802
-        self._json(200, {"object": "list", "data": [{"id": "rewrite3-shorter-4B", "object": "model"}]})
+        self._json(200, {"object": "list", "data": [{"id": "rewrite3-27B", "object": "model"}]})
 
     def do_POST(self):  # noqa: N802
         body = self._read_body()
@@ -224,7 +224,7 @@ def main() -> None:
         "port": ROUTER_PORT,
         "cloud": {"base_url": f"http://127.0.0.1:{CLOUD_PORT}/v1", "api_key": "sk-test",
                   "model": "mock-cloud"},
-        "rewrite": {"base_url": f"http://127.0.0.1:{REWRITE_PORT}/v1", "model": "rewrite3-shorter-4B",
+        "rewrite": {"base_url": f"http://127.0.0.1:{REWRITE_PORT}/v1", "model": "rewrite3-27B",
                     "instruction_file": "INSTRUCTION.txt", "max_tokens": 2048},
         "jev": {"base_url": f"http://127.0.0.1:{JEV_PORT}"},
         "protection": {"enabled": True, "min_prose_ratio": 0.0, "max_segments": 4,
