@@ -59,7 +59,8 @@ python3 tools/parse_preset.py --check preset_specs/
     "root_tags": [],                         // 只保留标签 token，内容继续按规则处理
     "plain_body": {                          // 没有 body 标签时（保存态/显示态）的锚点
       "after": ["</example_scene>"],         // 取最后一个 after 之后
-      "before": ["<example_after>"]          // 其后的第一个 before 之前
+      "before": ["<example_after>"],         // 其后的第一个 before 之前
+      "fallback_after_keep": false           // 正文写在 keep 块之后、且没有 body 标签时启用兜底
     },
     "keep_prefixes": ["好的，这是你要的正文："],  // 固定前缀句整句保留
     "body_is_whole": false                   // true = 整条消息都是正文（零标签预设）
@@ -78,6 +79,9 @@ python3 tools/parse_preset.py --check preset_specs/
 - 没有 body 标签时才用 `plain_body` 锚点（保存态正则会把标签物理删掉）。
 - `keep_prefixes`：文本开头（跳过空白）命中即整句保留。
 - `body_is_whole`：整条消息当正文（北棱这类零标签预设）。
+- `plain_body.fallback_after_keep`：body 标签/锚点都只切出空白时，取「第一个 keep 块
+  之后最大的非 keep 区域」当正文（用于个别把正文写在 `</tucao>` 之类 keep 块之后、
+  且不带 body 标签的预设变体）；兜底时会忽略未闭合的 keep 标签，避免规划吞掉全文。
 - 找不到正文区时的行为：正文里有该预设的结构 ⇒ **整条透传不改**（保守）；
   完全没有该预设结构 ⇒ 回退到通用保护层（等价旧行为）。
 

@@ -104,6 +104,28 @@ def test_truncated_output_never_rewrites_plan() -> None:
     assert plan is not None and plan.skipped, "截断输出不能把规划当正文改写"
 
 
+def test_fallback_after_keep_body() -> None:
+    """正文写在 keep 块之后、没有 body 标签时：fallback_after_keep 能兜底找到正文。"""
+    spec = presets._spec_from_json({
+        "id": "fallback-demo",
+        "name": "fallback 示例",
+        "match": {"markers": ["<x_tucao>"]},
+        "structure": {
+            "keep_tags": ["x_tucao", "x_status"],
+            "body_tags": [],
+            "plain_body": {"fallback_after_keep": True},
+        },
+    }, where="test")
+    body = "她把门推开，走廊里的灯忽明忽暗，风从窗缝里灌进来，吹得人缩了缩脖子。" * 2
+    text = (f"<x_tucao>这是吐槽，不能改。</x_tucao>\n\n{body}\n\n"
+            "<x_status>状态栏</x_status>")
+    plan = presets.plan_reply(text, spec)
+    assert plan is not None and not plan.skipped
+    prose = "".join(part.text for part in plan.parts if part.kind == "prose")
+    assert "她把门推开" in prose
+    assert "这是吐槽" not in prose and "状态栏" not in prose
+
+
 def test_pipeline_only_rewrites_body() -> None:
     text = _example_output()
     match = presets.match(text=text, specs=presets.load_specs())
@@ -148,6 +170,7 @@ def main() -> int:
         test_zero_tag_preset_match_and_whole_body,
         test_truncated_output_never_rewrites_plan,
         test_pipeline_only_rewrites_body,
+        test_fallback_after_keep_body,
     ]
     failed = 0
     for test in tests:

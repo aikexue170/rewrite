@@ -1,14 +1,15 @@
 """预设解析：识别用户当前在用的 ST 预设，按预设规则抽出「可改写正文」。
 
-背景：不同 SillyTavern 预设的模型回复不是同一种结构。有的预设用一组 XML 标签
-把规划 / 场景栏 / 正文 / 状态栏分开，预设自带的正则还会在显示/历史里剥掉一部分
-标签；另外一些预设的正文压根不在标签里，只能靠固定开场句/结束锚点定位。
+背景（见 施工记录 11-13.md 20:30 段）：不同 SillyTavern 预设的模型回复不是同一种
+结构。梦鲸思客 V5 输出 ``<dream_think>``（规划）/ ``<dream_scene>``（场景栏）/
+``<dream_body>``（真正文）/ ``<dream_after_format>``（状态栏），预设自带的正则还会在
+显示/历史里剥掉一部分标签；另外一些预设的正文压根不在标签里，只能靠锚点定位。
 
 通用保护层（``protection.plan_reply``）是按「标签名像不像正文」猜的，遇到这类预设会
 把规划当正文改写，或者把整条判成前端结构直接跳过。本模块把「这个预设的正文在哪」
 变成可配置的数据：
 
-* spec 文件：项目根 ``preset_specs/*.json``（``presets.dir`` 可改）。加新预设 =
+* spec 文件：站点根 ``preset_specs/*.json``（``presets.dir`` 可改）。加新预设 =
   往文件夹里加一个 spec（用 ``tools/parse_preset.py`` 从 ST 预设 JSON 生成草稿，
   人工补齐结构规则后可上线），不需要改代码。
 * 匹配：两条通道——入站 messages 里预设提示词做长句指纹比对（ST 托管路径最准），
@@ -73,6 +74,9 @@ class PresetSpec:
     body_is_whole: bool = False
     # plain_body.after 一个都没命中时的起点（None = 不启用；夏瑾 display 态用 0）
     plain_start_if_no_after: int | None = None
+    # body 标签/锚点都找不到正文时，退而取「第一个 keep 块之后的最大空白区」当正文
+    # （有的 Izumi 变体把正文写在 </tucao> 之后、且不带 <content> 标签）
+    plain_fallback_after_keep: bool = False
     # 资料（仅展示/审计，不参与抽取）
     regex_scripts: list[dict] = field(default_factory=list)
     tavern_helper_scripts: list[dict] = field(default_factory=list)
@@ -177,6 +181,7 @@ def _spec_from_json(payload: dict, *, where: str) -> PresetSpec | None:
         keep_prefixes=_str_list(structure.get("keep_prefixes")),
         body_is_whole=bool(structure.get("body_is_whole")),
         plain_start_if_no_after=_as_optional_int(plain.get("start_if_no_after")),
+        plain_fallback_after_keep=bool(plain.get("fallback_after_keep")),
         regex_scripts=[s for s in (payload.get("regex_scripts") or [])
                        if isinstance(s, dict)],
         tavern_helper_scripts=[s for s in (payload.get("tavern_helper_scripts") or [])
@@ -350,11 +355,14 @@ def _tag_events(text: str, names: set[str]) -> list[tuple[int, int, str, bool, b
     return events
 
 
-def _blocks(text: str, names: set[str]) -> list[tuple[int, int]]:
+def _blocks(text: str, names: set[str], *,
+            protect_unclosed: bool = True) -> list[tuple[int, int]]:
     """把 ``names`` 里的标签按配对切成整块 span（含标签本身）。
 
     - 自闭合/孤立闭标签：只保护标签本身；
-    - 未闭合开标签：保护到结尾（宁可整条不改，也不把规划/状态栏当正文）；
+    - 未闭合开标签：默认保护到结尾（宁可整条不改，也不把规划/状态栏当正文）；
+      ``protect_unclosed=False`` 时忽略未闭合标签（只给 ``fallback_after_keep``
+      的兜底路径用：某些 Izumi 变体的 ``<konatan_planning~>`` 不闭合）；
     - 同名嵌套按栈配对。
     """
     events = _tag_events(text, names)
@@ -381,8 +389,9 @@ def _blocks(text: str, names: set[str]) -> list[tuple[int, int]]:
             blocks.append((stray_start, max(stray_start, start)))
         del stack[index:]
         blocks.append((open_start, end))
-    for _name, stray_start in stack:
-        blocks.append((stray_start, len(text)))
+    if protect_unclosed:
+        for _name, stray_start in stack:
+            blocks.append((stray_start, len(text)))
     return _merge(blocks)
 
 
@@ -456,6 +465,33 @@ def _inner_spans(text: str, names: set[str]) -> list[tuple[int, int]]:
     return _merge(spans)
 
 
+def _fallback_after_keep_span(text: str, keep_spans: list[tuple[int, int]],
+                              min_rewrite_chars: int) -> tuple[int, int] | None:
+    """body 标签/锚点都失效时的兜底：第一个 keep 块之后、最大的非 keep 空白区。
+
+    只对显式开启 ``plain_body.fallback_after_keep`` 的 spec 生效（目前是 Izumi 的
+    某个变体：正文写在 ``</tucao>`` 之后且不带 ``<content>`` 标签）。规划在第一个
+    keep 块之前，所以不会被选中；候选区长度必须 >= ``min_rewrite_chars``。
+    """
+    merged = _merge(list(keep_spans))
+    if not merged:
+        return None
+    first_keep_end = merged[0][1]
+    gaps: list[tuple[int, int]] = []
+    cursor = 0
+    for start, end in merged:
+        if start > cursor:
+            gaps.append((cursor, start))
+        cursor = max(cursor, end)
+    if cursor < len(text):
+        gaps.append((cursor, len(text)))
+    candidates = [(start, end) for start, end in gaps
+                  if start >= first_keep_end and (end - start) >= min_rewrite_chars]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda span: span[1] - span[0])
+
+
 def _plain_body_span(text: str, spec: PresetSpec) -> tuple[int, int] | None:
     """没有 body 标签时用锚点定位正文区：最后一个 after 之后、其后的第一个 before 之前。"""
     start = -1
@@ -511,10 +547,13 @@ def plan_reply(text: str, spec: PresetSpec, *,
     root_names = spec.root_tag_set()
     # keep_tags：整块保护（含标签）；root_tags：只保留标签 token，内容继续按规则处理
     keep_spans = _blocks(text, keep_names) if keep_names else []
+    root_spans: list[tuple[int, int]] = []
     if root_names:
-        keep_spans = _merge(keep_spans + [(start, end) for start, end, _name, _closing,
-                                          _selfclose in _tag_events(text, root_names)])
-    keep_spans = _merge(keep_spans + _prefix_blocks(text, spec.keep_prefixes))
+        root_spans = [(start, end) for start, end, _name, _closing,
+                      _selfclose in _tag_events(text, root_names)]
+        keep_spans = _merge(keep_spans + root_spans)
+    prefix_spans = _prefix_blocks(text, spec.keep_prefixes)
+    keep_spans = _merge(keep_spans + prefix_spans)
     has_structure = bool(_tag_events(text, keep_names | body_names | root_names))
 
     body_spans: list[tuple[int, int]] = []
@@ -530,6 +569,19 @@ def plan_reply(text: str, spec: PresetSpec, *,
     if not body_spans and spec.body_is_whole:
         has_structure = True
         body_spans = _subtract([(0, len(text))], keep_spans)
+    if spec.plain_fallback_after_keep:
+        # 锚点只切出空白/换行（正文其实在 </tucao> 之后）时，当成没找到正文；
+        # 兜底时忽略未闭合 keep 标签（否则不闭合的 <konatan_planning~> 会吞掉全文）。
+        found_chars = sum(len(text[start:end].strip()) for start, end in body_spans)
+        if found_chars < min_rewrite_chars:
+            fallback_keep = _blocks(text, keep_names, protect_unclosed=False) if keep_names else []
+            fallback_keep = _merge(fallback_keep + root_spans + prefix_spans)
+            fallback = _fallback_after_keep_span(text, fallback_keep, min_rewrite_chars)
+            if fallback is not None:
+                keep_spans = fallback_keep
+                body_spans = _subtract([fallback], keep_spans)
+                if body_spans:
+                    has_structure = True
     if not body_spans:
         # 命中预设但从结构上找不到正文区：有结构 ⇒ 判定「不可改，整条透传」，
         # 避免回退到通用保护层后把规划/状态栏当正文改写（11-13 事故）；
