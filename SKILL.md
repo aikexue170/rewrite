@@ -48,6 +48,24 @@ Windows 用 `setup_windows.bat`（自动建 venv、装依赖、生成 config.jso
 `preset_specs/` 随仓库自带 `beileng-3-0.json`（作者自用）和 `example-spec.json`（模板），预设解析默认开启。
 第三方预设的 spec 不随仓库分发（指纹是别人预设提示词的片段）；用户要用就用自己的预设本地生成：`python tools/parse_preset.py 你的预设.json --out preset_specs/xxx.json`。
 
+## 步骤 1.5：适配预设（必做，尤其第三方预设）
+
+**不要跳过**：如果用户用的是夏瑾/梦鲸/泉此方这类第三方预设，而 `preset_specs/` 里没有对应 spec，
+路由会回退通用保护：典型症状是 **「正文被切得太碎（N 段）」跳过改文**、规划/状态栏被当正文改、
+思考模板混进正文。这不是改文模型的问题。
+
+必须做：
+
+1. 让用户导出自己的 ST 预设 JSON；
+2. `python tools/parse_preset.py 用户的预设.json --out preset_specs/<id>.json`；
+3. 用**一条真实的云端原始回复**核对结构，人工补齐 `plain_body.after` / `plain_body.before` /
+   `keep_prefixes` / `keep_tags` / `body_tags` 等规则（自动生成只管标签和指纹）；
+4. `python tools/parse_preset.py --check preset_specs/`；
+5. 发一条真实请求验证：日志出现「预设命中」，输出里结构块原样、只有正文被改，没有「切得太碎」。
+
+完整字段说明 / 症状→修法表 / 最小示例见 **[SKILL-preset.md](SKILL-preset.md)**。
+第三方 spec 只放用户本地，不要提交公开仓库。
+
 ## 步骤 2：下载模型
 
 ```bash
@@ -158,7 +176,9 @@ curl -N -X POST http://127.0.0.1:8011/api/rewrite \
 | 改文 404 / model not found | config 里 rewrite.model 和服务名不一致 | 改成启动参数里的 `--alias` / `--served-model-name` |
 | jev 分数全是【NA】 | jev 服务没起或地址不对 | 起 `tools/serve_jev.py`，`curl :8885/health` |
 | 正文迟迟不出来 | 整篇模式 + 改文 CoT 很长 | 正常现象；可调 `pipeline.body_after_cot=false` 或减小 `max_source_chars` |
-| 换了 ST 预设后规划/状态栏被改写 | 没命中预设，走了通用保护层 | 看 `config.presets.enabled`；`python tools/parse_preset.py --check preset_specs/`；新预设按 `preset_specs/README.md` 补 spec |
+| 换了 ST 预设后规划/状态栏被改写 | 没命中预设，走了通用保护层 | 按 [SKILL-preset.md](SKILL-preset.md) 给该预设生成 spec；`python tools/parse_preset.py --check preset_specs/` |
+| 提示「正文被切得太碎（N 段）」/ 整条没改 | 该预设没有 spec 或 spec 结构不对，回退通用保护 | 先适配预设（[SKILL-preset.md](SKILL-preset.md)），用真实回复补 `plain_body` 锚点 |
+| 思考模板/规划被当正文改 | 旧版仓库没有 `strip_thinking` 修复 | `git pull` 到 2026-11-15 之后的版本；并检查对应标签是否在 `keep_tags` |
 | 显存 OOM | 27B 太大/上下文太长 | 换 IQ3_XS、降 `-c`、jev 放 CPU |
 | 端口被占 | 8011/8080/8885 冲突 | 改 config/bat 里的端口 |
 | Windows 控制台乱码 | 编码 | 用仓库里的 `.bat`（已 chcp 65001 + PYTHONUTF8=1） |
@@ -168,6 +188,7 @@ curl -N -X POST http://127.0.0.1:8011/api/rewrite \
 
 - 不要修改 `app/sentences.py`：它必须和 jev 训练时的分句规则一致，改了分数口径就错。
 - 不要默认关掉 `protection`：前端卡的状态栏/HTML/变量块靠它保护。
+- 遇到「选预设后改文跳过/切碎/规划被改」，**先按 [SKILL-preset.md](SKILL-preset.md) 适配预设**，再判断是不是代码问题。
 - 不要删 `preset_specs/`：预设解析靠它识别 ST 预设；新增/修改 spec 后用 `tools/parse_preset.py --check` 校验。
 - 不要把 `config.json`、`debug/`、`.venv/` 提交到 git。
 - 没有用户明确要求，不要把这个服务暴露到公网（无鉴权，会盗用用户的云端 key 额度）。

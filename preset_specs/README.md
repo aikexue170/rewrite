@@ -1,5 +1,10 @@
 # preset_specs/ · 预设解析 spec 仓库
 
+> ⚠️ **第三方预设必须先适配 spec。** 本目录只带两份（作者自用 + 教学模板）；没有 spec 时路由会回退
+> 通用保护，遇到思考模板写进正文/复杂结构会出现 **`正文被切得太碎（N 段）`**、规划或状态栏被当正文改。
+> 完整适配流程（给 AI agent / 用户）：**[../SKILL-preset.md](../SKILL-preset.md)**。
+> 第三方预设的 spec、指纹、预设原文只放本地，**不要提交到仓库**（`.gitignore` 已覆盖）。
+
 每份 ST（SillyTavern）Chat Completion 预设一个 JSON。路由器后端（`app/presets.py`）
 启动时/请求时读这个目录（目录内容变了自动重载，改完不用重启），用它们：
 

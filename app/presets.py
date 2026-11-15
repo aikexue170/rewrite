@@ -41,6 +41,14 @@ _DEFAULT_MIN_FINGERPRINT_CHARS = 20
 _DEFAULT_MIN_MARKERS = 1
 _DEFAULT_MIN_TEXT_SCORE = 8
 
+# 供应商偶尔把「思考模板」写进 content（而不是 reasoning_content）：成对出现时整块
+# 摘掉当思维链；只写开头、没写结尾时用预设的正文锚点定位回答起点（见 strip_thinking）。
+# 2026-11-15 夏瑾线上事故（模型把 <｜begin▁of▁thinking｜>… 模板吐进正文）。
+_THINKING_TOKENS = ("<｜begin▁of▁thinking｜>", "<thinking>", "<think>")
+_THINKING_PAIRS = (("<｜begin▁of▁thinking｜>", "<｜end▁of▁thinking｜>"),
+                   ("<thinking>", "</thinking>"),
+                   ("<think>", "</think>"))
+
 # 标签 token（比 protection 的宽松：预设标签常见下划线/冒号，允许属性）
 _TAG_RE = re.compile(r"<\s*(/?)\s*([A-Za-z][A-Za-z0-9_.:\-~]*)\b([^<>]*?)(/?)>", re.S)
 # 中文标签（图灵/夏瑾有 <平行世界>、<正文> 这类）
@@ -463,6 +471,59 @@ def _inner_spans(text: str, names: set[str]) -> list[tuple[int, int]]:
     for _name, inner_start in stack:
         spans.append((inner_start, len(text)))
     return _merge(spans)
+
+
+def _last_after_anchor(text: str, spec: PresetSpec) -> tuple[int, int] | None:
+    """``plain_body.after`` 里最靠后的一个锚点 span（start, end）；没有返回 None。"""
+    best: tuple[int, int] | None = None
+    for anchor in spec.plain_body_after:
+        if not anchor:
+            continue
+        index = text.rfind(anchor)
+        if index >= 0 and (best is None or index + len(anchor) >= best[1]):
+            best = (index, index + len(anchor))
+    return best
+
+
+def _take_thinking_pairs(text: str) -> tuple[str, str]:
+    """摘掉成对的思考块，返回 ``(thinking, rest)``。"""
+    thinking: list[str] = []
+    for begin, end in _THINKING_PAIRS:
+        while True:
+            start = text.find(begin)
+            if start < 0:
+                break
+            stop = text.find(end, start + len(begin))
+            if stop < 0:
+                break
+            thinking.append(text[start + len(begin):stop].strip())
+            text = text[:start] + text[stop + len(end):]
+    return "\n\n".join(part for part in thinking if part), text
+
+
+def strip_thinking(text: str, spec: PresetSpec | None = None) -> tuple[str, str]:
+    """剥离「模型把思考模板写进正文」的部分，返回 ``(thinking, clean_text)``。
+
+    两类形态（线上都出现过）：
+
+    - 成对思考块：``<｜begin▁of▁thinking｜>…<｜end▁of▁thinking｜>`` / ``<think>…</think>``
+      / ``<thinking>…</thinking>``，任何位置都摘掉；
+    - 只有开头没有结尾：用预设 ``plain_body.after`` 里最靠后的锚点当「回答起点」，
+      锚点之前全算思考（模型常把开场句写进思考里，所以取最后一次出现）。
+      找不到可靠锚点就原样返回，宁可少切，也不把正文切掉。
+    """
+    if not text:
+        return "", text
+    thinking, rest = _take_thinking_pairs(text)
+    parts = [thinking] if thinking else []
+    stripped = rest.lstrip()
+    if (spec is not None and stripped
+            and any(stripped.startswith(token) for token in _THINKING_TOKENS)):
+        anchor = _last_after_anchor(rest, spec)
+        if anchor is not None and anchor[0] > 0:
+            parts.append(rest[:anchor[0]].strip())
+            rest = rest[anchor[0]:]
+    return "\n\n".join(part for part in parts if part), rest
 
 
 def _fallback_after_keep_span(text: str, keep_spans: list[tuple[int, int]],

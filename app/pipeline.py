@@ -44,10 +44,25 @@ def _protection_cfg() -> dict:
 _REASONING_BODY_STARTS = ("<dream_plot", "<content", "<正文", "<maintext")
 
 
-def _body_from_reasoning(text: str) -> str:
-    """从思维链里找「正文结构起点」：命中已知起始标签就从那里截到结尾。"""
+def _body_from_reasoning(text: str,
+                         spec: presets.PresetSpec | None = None) -> str:
+    """从思维链里找正文。
+
+    优先用预设的 ``plain_body.after`` 锚点（有的模型/供应商把整篇回复写进 reasoning，
+    如夏瑾；预设能说出开场句在哪），再从已知「正文结构起点」标签截到结尾（梦鲸等）。
+    """
     if not text:
         return ""
+    if spec is not None and spec.plain_body_after:
+        best = -1
+        for anchor in spec.plain_body_after:
+            index = text.rfind(anchor)
+            if index > best:
+                best = index
+        if best >= 0:
+            candidate = text[best:].strip()
+            if candidate:
+                return candidate
     best = -1
     for marker in _REASONING_BODY_STARTS:
         index = text.find(marker)
@@ -360,15 +375,8 @@ async def run(messages: list[dict], forwarded_params: dict, emit: Emit,
         raise
     await emit("stage", "cloud:done")
     body = body.strip()
-    if not body:
-        # 预设把整份输出塞进思维链（如梦鲸「空正文梦境提取」）时，正文在 reasoning 里。
-        body = _body_from_reasoning("".join(reasoning_buf))
-        if not body:
-            raise RuntimeError("云端模型没有返回正文")
-        had_cot = True
-        logger.info("云端正文为空，已从思维链里抽出正文 %d 字符", len(body))
-    await emit("cloud_output", body)
 
+    # 预设匹配必须放在判空之前：空正文也要先认出预设，才能按预设锚点从 reasoning 抽正文。
     preset_match = None
     pcfg = _presets_cfg()
     if pcfg["enabled"]:
@@ -377,9 +385,29 @@ async def run(messages: list[dict], forwarded_params: dict, emit: Emit,
                                          specs=presets.load_specs())
         except Exception:                  # noqa: BLE001 - 预设解析绝不能毁掉请求
             logger.exception("预设匹配异常，按无预设处理")
-        if preset_match is not None and pcfg["note_in_reasoning"]:
-            await emit("reasoning",
-                       f"\n\n〔已识别预设：{preset_match.spec.name}〕\n")
+    spec = preset_match.spec if preset_match is not None else None
+
+    # 供应商偶尔把「思考模板」写进正文（而非 reasoning_content）：先摘出来走思维链，
+    # 否则会被当成可改写正文送去 JEV + 改文（2026-11-15 夏瑾线上事故）。
+    leaked, body = presets.strip_thinking(body, spec)
+    if leaked:
+        logger.info("正文里混入的模型思考已剥离 %d 字符", len(leaked))
+        await emit("reasoning", leaked)
+        had_cot = True
+    body = body.strip()
+
+    if not body:
+        # 预设把整份输出塞进思维链（如梦鲸「空正文梦境提取」）/ 供应商把正文全放
+        # reasoning 时，从 reasoning 里按预设锚点兜底抽正文，绝不空手返回。
+        body = _body_from_reasoning("".join(reasoning_buf), spec)
+        if not body:
+            raise RuntimeError("云端模型没有返回正文")
+        had_cot = True
+        logger.info("云端正文为空，已从思维链里抽出正文 %d 字符", len(body))
+    await emit("cloud_output", body)
+    if preset_match is not None and pcfg["note_in_reasoning"]:
+        await emit("reasoning",
+                   f"\n\n〔已识别预设：{preset_match.spec.name}〕\n")
     return await _process_body(body, had_cot, emit, on_marked,
                                preset_match=preset_match)
 
@@ -397,8 +425,14 @@ async def rewrite_text(text: str, emit: Emit,
             preset_match = presets.match(text=body, specs=presets.load_specs())
         except Exception:                  # noqa: BLE001
             logger.exception("预设匹配异常，按无预设处理")
-        if preset_match is not None and pcfg["note_in_reasoning"]:
-            await emit("reasoning",
-                       f"\n\n〔已识别预设：{preset_match.spec.name}〕\n")
+    # 网页粘贴的文本里也可能混着模型的思考模板：能切干净就切，切完为空则保持原样。
+    spec = preset_match.spec if preset_match is not None else None
+    leaked, clean = presets.strip_thinking(body, spec)
+    if leaked and clean.strip():
+        await emit("reasoning", leaked)
+        body = clean.strip()
+    if preset_match is not None and pcfg["note_in_reasoning"]:
+        await emit("reasoning",
+                   f"\n\n〔已识别预设：{preset_match.spec.name}〕\n")
     return await _process_body(body, False, emit, on_marked,
                                preset_match=preset_match)

@@ -11,6 +11,16 @@
 
 ---
 
+> ## ⚠️ 自部署必读：第三方预设要先适配 spec
+>
+> 本仓库只带作者自用的 `beileng-3-0.json` 和教学模板 `example-spec.json`；**夏瑾、梦鲸思客、泉此方这类第三方预设的 spec 不随仓库分发**。
+> 没有对应 spec 时，路由器会回退「通用保护」，遇到模型把思考模板写进正文、或者规划/状态栏/变量块结构复杂时，
+> 会出现 **`正文被切得太碎（N 段）` 然后跳过改文**、规划或状态栏被当正文改等问题。
+>
+> 适配流程（给 AI agent 的完整 skill）：**[SKILL-preset.md](SKILL-preset.md)**。一句话：
+> `python tools/parse_preset.py 你的预设.json --out preset_specs/你的预设.json`，再按真实回复补齐
+> `plain_body.after` / `keep_tags` 等结构规则，最后用一条真实请求验证「只改正文」。第三方 spec 只放本地，不要提交。
+
 ## 这是什么
 
 SillyTavern（或任何 OpenAI 兼容客户端）连上它，请求会被这样处理：
@@ -74,7 +84,14 @@ SillyTavern ──▶ 薯饼路由器 ──▶ 云端模型（DeepSeek / Kimi /
 - **匹配**：入站 messages 里的预设提示词长句指纹（ST 托管路径最准），或正文里的结构标记；
 - **抽取**：按 spec 的 `keep_tags` / `body_tags` / `plain_body` 锚点切分，结构块原样保留，
   正文区内部再交给通用保护层二次切分；
-- **回退**：没命中预设就走原来的通用保护逻辑，行为和以前完全一样。
+- **回退**：没命中预设就走原来的通用保护逻辑，行为与旧版一致——但这时如果云端回复结构复杂
+  （思考模板写进正文、多段状态栏等），就可能出现 **`正文被切得太碎（N 段）` 跳过改文**。
+  这不是 bug，是提示你该给这个预设适配 spec 了（见 [SKILL-preset.md](SKILL-preset.md)）。
+
+> **2026-11-15 修复**：云端模型偶尔把「思考模板」写进正文（而不是 `reasoning_content`）。
+> 新版本会先做 `strip_thinking`：成对 `<think>` / `<｜begin▁of▁thinking｜>` 块直接剥离；
+> 只有开头没有结尾时，用 spec 的 `plain_body.after` 最靠后一次出现的开场锚点当回答起点。
+> 剥出来的思考走思维链，不再被当正文打 JEV 分/送改文。旧版独立仓库如果没有这个修复，请先升级。
 
 加新预设 = 往 `preset_specs/` 放一份 spec，不用改代码、不用重启（目录变了自动重载）：
 
@@ -205,6 +222,12 @@ cp config.example.json config.json
 
 **改文会不会把状态栏/选项改坏？**
 不会。结构化内容会被识别为「保留段」逐字节保留，只有纯正文送改文；认不出结构时整条跳过并提示。
+
+**为什么提示「正文被切得太碎（N 段）」？**
+九成是这个预设还没适配 spec，被通用保护层猜错了结构。按 [SKILL-preset.md](SKILL-preset.md) 给这个预设生成
+spec（用自己本地的预设文件），补齐结构锚点后再试；第三方 spec 只放本地，不要提交到仓库。
+
+**自测**：`python tests/test_thinking_strip.py`（思考模板剥离回归）、`python tests/test_presets.py`（预设解析）。
 
 **改文字数变化大吗？**
 rewrite3-27B 是「保持长度」档（0.9～1.1 倍），不会大砍篇幅；如果发现明显变短，先确认 `INSTRUCTION.txt` 没被换掉、`rewrite.model` 和启动时的 alias/代理名一致。
